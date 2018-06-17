@@ -23,14 +23,18 @@ public class Group {
     users = Collections.emptyList();
     topic = "";
   }
-  
+
+  public void sendMessage(String message, boolean raw, String messageType, String contentTypeHeader) {
+    skype.sendGroupMessage(this, message, raw, messageType, contentTypeHeader);
+  }
+
   /**
    * Sends a message to the group.
    *
    * @param message The message to send.
    */
   public void sendMessage(String message) {
-    skype.sendGroupMessage(this, message);
+    sendMessage(message, false, "RichText", "Content-Type: application/user+xml");
   }
   
   /**

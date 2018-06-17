@@ -1,18 +1,16 @@
 package fr.delthas.skype;
 
-import java.util.Date;
-
 /**
  * A listener for new messages sent to a Skype account.
  */
 @FunctionalInterface
-public interface GroupMessageListener {
+public interface GroupFileListener {
   /**
    * Called when a message is sent from a user to a group the Skype account is in while it is connected.
    *
    * @param group   The group in which the message has been sent.
-   * @param sender  The sender of the message.
-   * @param message The message sent.
+   * @param user  The sender of the message.
+   * @param file The file sent.
    */
-  void messageReceived(Group group, User sender, String message, Date date);
+  void fileReceived(Group group, User user, SkypeFile file);
 }

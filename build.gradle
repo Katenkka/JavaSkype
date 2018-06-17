@@ -1,0 +1,24 @@
+plugins {
+    id 'java'
+}
+
+group 'com.ekaterina'
+version '1.0-SNAPSHOT'
+
+sourceCompatibility = 1.8
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    //compile 'fr.delthas:javaskype:1.0.24.1'
+    compile 'org.json:json:20160212' //javaskype dep
+    compile 'org.jsoup:jsoup:1.11.3' //javaskype dep
+/*
+    testCompile 'com.google.code.gson:gson:2.7' //jsoup dep
+    testCompile 'org.eclipse.jetty:jetty-server:9.2.22.v20170606' //jsoup dep
+    testCompile 'org.eclipse.jetty:jetty-servlet:9.2.22.v20170606' //jsoup dep*/
+
+    testCompile group: 'junit', name: 'junit', version: '4.12' //javaskype,  dep
+}

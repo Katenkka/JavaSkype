@@ -34,6 +34,7 @@ public final class Skype {
   private final Thread refreshThread;
   private List<UserMessageListener> userMessageListeners = new LinkedList<>();
   private List<GroupMessageListener> groupMessageListeners = new LinkedList<>();
+  private List<GroupFileListener> groupFileListeners = new LinkedList<>();
   private List<UserPresenceListener> userPresenceListeners = new LinkedList<>();
   private List<GroupPropertiesListener> groupPropertiesListeners = new LinkedList<>();
   private ErrorListener errorListener;
@@ -350,10 +351,30 @@ public final class Skype {
     }
   }
   
-  byte[] getAvatar(User user) {
+  public byte[] getAvatar(User user) {
     ensureConnected();
     try {
       return webConnector.getAvatar(user);
+    } catch (IOException e) {
+      error(e);
+      return null;
+    }
+  }
+
+ public void sendFile(Group group, String fileName, byte[] fileBytes, boolean image) {
+    ensureConnected();
+    try {
+      webConnector.sendFile(group, fileName, fileBytes, image);
+    } catch (IOException e) {
+      error(e);
+      return;
+    }
+  }
+
+  byte[] getFile(String url) {
+    ensureConnected();
+    try {
+      return webConnector.getFileAsBytes(url);
     } catch (IOException e) {
       error(e);
       return null;
@@ -404,12 +425,12 @@ public final class Skype {
       error(e);
     }
   }
-  
-  void sendGroupMessage(Group group, String message) {
+
+  void sendGroupMessage(Group group, String message, boolean raw, String messageType, String contentTypeHeader) {
     ensureConnected();
     try {
       logger.finer("Sending group: " + group + " message: " + message);
-      notifConnector.sendGroupMessage(group, message);
+      notifConnector.sendGroupMessage(group, message, raw, messageType, contentTypeHeader);
     } catch (IOException e) {
       error(e);
     }
@@ -465,13 +486,20 @@ public final class Skype {
     }
   }
   
-  void groupMessageReceived(Group group, User sender, String message) {
+  void groupMessageReceived(Group group, User sender, String message, Date date) {
     logger.finer("Received group message: " + message + " from user: " + sender + " in group: " + group);
     for (GroupMessageListener listener : groupMessageListeners) {
-      listener.messageReceived(group, sender, message);
+      listener.messageReceived(group, sender, message, date);
     }
   }
-  
+
+  void groupFileReceived(Group group, User sender, SkypeFile skypeFile) {
+    logger.finer("Received file (type: " + skypeFile.getType() + ") from user: " + sender + " in group: " + group);
+    for (GroupFileListener listener : groupFileListeners) {
+      listener.fileReceived(group, sender, skypeFile);
+    }
+  }
+
   void userPresenceChanged(User user, Presence oldPresence, Presence presence) {
     logger.finer("User: " + user + " changed presence from: " + oldPresence + " to: " + presence);
     for (UserPresenceListener listener : userPresenceListeners) {
@@ -536,7 +564,16 @@ public final class Skype {
   public void addGroupMessageListener(GroupMessageListener groupMessageListener) {
     groupMessageListeners.add(groupMessageListener);
   }
-  
+
+  /**
+   * Adds a file message listener.
+   *
+   * @param groupFileListener The group file listener to add.
+   */
+  public void addGroupFileListener(GroupFileListener groupFileListener) {
+    groupFileListeners.add(groupFileListener);
+  }
+
   /**
    * Removes a group message listener.
    *

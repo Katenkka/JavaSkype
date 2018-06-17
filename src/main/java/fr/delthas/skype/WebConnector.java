@@ -12,7 +12,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Base64;
+import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -23,62 +23,184 @@ class WebConnector {
   private final String username, password;
   private String skypeToken;
   private boolean updated = false;
-  
+
   public WebConnector(Skype skype, String username, String password) {
     this.skype = skype;
     this.username = username;
     this.password = password;
   }
-  
+
   private static String getPlaintext(String string) {
     if (string == null) {
       return null;
     }
     return Jsoup.parseBodyFragment(string).text();
   }
-  
+
   public synchronized long refreshTokens(String token) throws IOException {
     logger.finer("Refreshing tokens");
     long expire = generateToken(token);
     updateContacts();
     return expire;
   }
-  
+
   public void block(User user) throws IOException {
     sendRequest(Method.PUT, "/users/self/contacts/" + user.getUsername() + "/block", "reporterIp", "127.0.0.1");
   }
-  
+
   public void unblock(User user) throws IOException {
     sendRequest(Method.PUT, "/users/self/contacts/" + user.getUsername() + "/unblock");
   }
-  
+
   public void sendContactRequest(User user, String greeting) throws IOException {
     sendRequest(Method.PUT, "/users/self/contacts/auth-request/" + user.getUsername(), "greeting", greeting);
   }
-  
+
   public void acceptContactRequest(ContactRequest contactRequest) throws IOException {
     sendRequest(Method.PUT, "/users/self/contacts/auth-request/" + contactRequest.getUser().getUsername() + "/accept");
   }
-  
+
   public void declineContactRequest(ContactRequest contactRequest) throws IOException {
     sendRequest(Method.PUT, "/users/self/contacts/auth-request/" + contactRequest.getUser().getUsername() + "/decline");
   }
-  
+
   public void removeFromContacts(User user) throws IOException {
     sendRequest(Method.DELETE, "/users/self/contacts/" + user.getUsername());
   }
-  
+
   public byte[] getAvatar(User user) throws IOException {
     return sendRequest(Method.GET, user.getAvatarUrl(), true).bodyAsBytes();
   }
-  
+
+  public byte[] getFileAsBytes(String url) throws IOException {
+    return prepareConnectWithAuthorizationToken(Method.GET, url, true)
+            .header("Accept", "application/json")
+            .execute().bodyAsBytes();
+  }
+
+  private String getUriObject(String content, String url, String type, String thumb, String title, String desc, HashMap<String, String> keyvals) {
+    String titleTag = title.equals("") ? "<Title/>" : String.format("<Title>Title: %s</Title>", title);
+    String descTag = desc.equals("") ? "<Description/>" : String.format("<Description>Description: %s</Description>", desc);
+    String thumbAttr = thumb.equals("") ? "" : String.format(" url_thumbnail=\"%s\"", thumb);
+
+    StringBuilder valTags = new StringBuilder();
+    Iterator it = keyvals.entrySet().iterator();
+    while (it.hasNext()) {
+      Map.Entry pair = (Map.Entry)it.next();
+      valTags.append(String.format("<%s v=\"%s\"/>", pair.getKey(),pair.getValue()));
+      it.remove(); // avoids a ConcurrentModificationException
+    }
+
+    return String.format("<URIObject type=\"%s\" uri=\"%s\"%s>%s%s%s%s</URIObject>", type, url, thumbAttr, titleTag, descTag, content, valTags.toString());
+  }
+
+  public void sendFile(Group group, String fileName, byte[] fileBytes, boolean image) throws IOException {
+    JSONObject meta = new JSONObject();
+    meta.put("type", image ? "pish/image" : "sharing/file");
+    if(!image) {
+      meta.put("filename", fileName);
+    }
+
+    JSONArray permission = new JSONArray();
+    permission.put("read");
+
+    JSONObject groupPermission = new JSONObject();
+    groupPermission.put("19:" + group.getId() + "@thread.skype", permission);
+
+    meta.put("permissions", groupPermission);
+
+    Connection conn = prepareConnectWithAuthorizationToken(Method.POST, "https://api.asm.skype.com/v1/objects", true)
+            .requestBody(meta.toString())
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json")
+            .header("X-Client-Version", "908/1.117.0.21");
+
+    String idResponse = conn.execute().body();
+
+    JSONObject json = new JSONObject(idResponse);
+
+    String uploadId = json.optString("id", null);
+    if (uploadId == null) {
+      throw new ParseException("Error while parsing file id response, no uploadId ");
+    }
+
+    String urlFull = "https://api.asm.skype.com/v1/objects/" + uploadId;
+    String objType = image ? "imgpsh" :  "original";
+    int statusCode = putFileReturnStatusCode(fileBytes, urlFull, objType);
+    if (statusCode != 201) {
+      throw new ParseException("Couldn't create a file by PUT request");
+    }
+
+    HashMap<String, String> keyvals = new HashMap<String, String>();
+    StringBuilder messageBody = new StringBuilder();
+
+    // всё ок, файл создан, теперь отправляем сообщение с этим файлом
+    if(image) {
+      String linkToFile = String.format("https://api.asm.skype.com/s/i?%s", uploadId);
+      String viewLink = String.format("<a href=\"%s\">%s</a>", linkToFile, linkToFile);
+      String thumbUrl = "%s/views/imgt1";
+
+      keyvals.put("OriginalName", fileName);
+
+      messageBody.append(this.getUriObject(String.format("%s<meta type=\"photo\" originalName=\"%s\"/>", viewLink, fileName), urlFull,"Picture.1", String.format(thumbUrl, urlFull), "","", keyvals));
+    } else {
+      String linkToFile = String.format("https://login.skype.com/login/sso?go=webclient.xmm&docid=%s", uploadId);
+      String viewLink = String.format("<a href=\"{%s}\">{%s}</a>", linkToFile, linkToFile);
+      String thumbUrl = "%s/views/thumbnail";
+
+      keyvals.put("OriginalName", fileName);
+      keyvals.put("FileSize", String.format("%d", fileBytes.length)); //?
+
+      messageBody.append(this.getUriObject(viewLink, urlFull, "File.1", String.format(thumbUrl, urlFull), fileName, fileName, keyvals));
+    }
+
+    group.sendMessage(messageBody.toString(), true, String.format("RichText/%s", image ? "UriObject" : "Media_GenericFile"), "Content-Type: application/user+xml");
+  }
+
+  /**
+   * Do not use as it corrupts at least pictures. Use native HttpURLConnection instead, implemented in
+   * @see #putFileReturnStatusCode(byte[], String, String)
+   *
+   * @param fileBytes
+   * @param urlFull
+   * @param objType
+   * @return
+   * @throws IOException
+   *
+   * @deprecated
+   */
+  private int putFileReturnStatusCodeJsoup(byte[] fileBytes, String urlFull, String objType) throws IOException {
+    Connection putConnection = prepareConnectWithAuthorizationToken(Method.PUT, urlFull + "/content/" + objType, true)
+            .requestBody(new String(fileBytes))
+            .header("Content-Type", "multipart/form-data; charset=utf-8");
+
+    return putConnection.execute().statusCode();
+  }
+
+  private int putFileReturnStatusCode(byte[] fileContents, String urlFull, String objType) throws IOException {
+    java.net.URL url = new java.net.URL(urlFull + "/content/" + objType);
+    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+    conn.setDoOutput(true);
+
+    conn.setRequestMethod("PUT");
+    conn.setRequestProperty("Authorization", "skype_token " + skypeToken);
+    conn.setRequestProperty("Content-Type", "multipart/form-data");
+    conn.setRequestProperty("Content-Length", String.valueOf(fileContents.length));
+
+    java.io.OutputStream out = conn.getOutputStream();
+    out.write(fileContents);
+    out.close();
+
+    return conn.getResponseCode();
+  }
+
   public void updateUser(User user) throws IOException {
     String reponse = sendRequest(Method.GET, "/users/" + user.getUsername() + "/profile/public", "clientVersion", "0/7.12.0.101/").body();
     JSONObject userJSON = new JSONObject(reponse);
     userJSON.put("username", user.getUsername());
     updateUser(userJSON, false);
   }
-  
+
   private void updateContacts() throws IOException {
     if (updated) {
       return;
@@ -87,7 +209,7 @@ class WebConnector {
     String selfResponse = sendRequest(Method.GET, "/users/self/profile").body();
     JSONObject selfJSON = new JSONObject(selfResponse);
     updateUser(selfJSON, false);
-    
+
     String profilesResponse =
             sendRequest(Method.GET, "https://contacts.skype.com/contacts/v2/users/" + getSelfLiveUsername() + "/contacts", true).body();
     try {
@@ -106,7 +228,7 @@ class WebConnector {
       throw new ParseException(e);
     }
   }
-  
+
   private User updateUser(JSONObject userJSON, boolean newContactType) throws ParseException {
     String userUsername;
     String userFirstName = null;
@@ -130,7 +252,7 @@ class WebConnector {
         if (userJSON.optBoolean("blocked", false)) { return null; }
         if (!userJSON.optBoolean("authorized", false)) { return null; }
         if (userJSON.optBoolean("suggested", false)) { return null; }
-  
+
         String mri = userJSON.getString("mri");
         int senderBegin = mri.indexOf(':');
         int network;
@@ -172,7 +294,7 @@ class WebConnector {
     user.setAvatarUrl(userAvatarUrl);
     return user;
   }
-  
+
   private long generateToken(String token) throws IOException {
     String response;
     if (token == null) {
@@ -213,7 +335,15 @@ class WebConnector {
       throw e;
     }
   }
-  
+
+  private Connection prepareConnectWithAuthorizationToken(Method method, String apiPath, boolean absoluteApiPath) {
+    String url = absoluteApiPath ? apiPath : SERVER_HOSTNAME + apiPath;
+    Connection conn = Jsoup.connect(url).maxBodySize(100 * 1024 * 1024).timeout(10000).method(method).ignoreContentType(true).ignoreHttpErrors(true);
+    logger.finest("Sending " + method + " request at " + url);
+    conn.header("Authorization", "skype_token " + skypeToken);
+    return conn;
+  }
+
   private Response sendRequest(Method method, String apiPath, boolean absoluteApiPath, String... keyval) throws IOException {
     String url = absoluteApiPath ? apiPath : SERVER_HOSTNAME + apiPath;
     Connection conn = Jsoup.connect(url).maxBodySize(100 * 1024 * 1024).timeout(10000).method(method).ignoreContentType(true).ignoreHttpErrors(true);
@@ -227,11 +357,11 @@ class WebConnector {
     conn.data(keyval);
     return conn.execute();
   }
-  
+
   private Response sendRequest(Method method, String apiPath, String... keyval) throws IOException {
     return sendRequest(method, apiPath, false, keyval);
   }
-  
+
   private String getSelfLiveUsername() {
     if (username.contains("@")) {
       return "live:" + username.substring(0, username.indexOf('@'));

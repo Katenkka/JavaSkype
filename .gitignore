@@ -37,3 +37,10 @@ local.properties
 out/
 *.iml
 *.iws
+=======
+/.gradle/
+/access.log
+/build/
+/.idea/
+/access.log.lck
+/out/
