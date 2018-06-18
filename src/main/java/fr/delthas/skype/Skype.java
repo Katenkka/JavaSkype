@@ -285,14 +285,18 @@ public final class Skype {
     }
     if (connecting) {
       exceptionDuringConnection = e;
-    } else {
-      disconnect();
     }
   }
   
   private void ensureConnected() throws IllegalStateException {
     if (!connected) {
-      throw new IllegalStateException("Not connected to Skype!");
+      try {
+        connect();
+      } catch (IOException e) {
+        errorListener.error(e);
+      } catch (InterruptedException e) {
+        e.printStackTrace();
+      }
     }
   }
   
