@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>fr.delthas</groupId>
   <artifactId>javaskype</artifactId>
-  <version>1.0.24.5</version>
+  <version>1.0.24.6</version>
 
   <name>JavaSkype</name>
   <description>An API for Skype using MSNP24</description>
