@@ -275,7 +275,7 @@ public final class Skype {
     logger.finest("Adding contact " + username);
     contacts.add(getUser(username));
   }
-  
+
   void error(IOException e) {
     logger.log(Level.SEVERE, "Error thrown", e);
     if (errorListener != null) {
@@ -285,6 +285,15 @@ public final class Skype {
     }
     if (connecting) {
       exceptionDuringConnection = e;
+    } else {
+      disconnect();
+
+      logger.log(Level.INFO, "trying to reconnect straightaway");
+      try {
+        this.connect(Presence.ONLINE);
+      } catch (IOException | InterruptedException e1) {
+        logger.log(Level.SEVERE, "Error thrown while trying to reconnect", e1);
+      }
     }
   }
   
