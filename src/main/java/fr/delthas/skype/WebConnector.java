@@ -95,6 +95,23 @@ class WebConnector {
   }
 
   void sendFile(Group group, SkypeFile file) throws IOException {
+    int counter = 0;
+      while(counter < 3) {
+          try {
+              counter++;
+              trySendFile(group, file);
+              break;
+          } catch (Exception e) {
+              if (counter < 3) {
+                  logger.warning("An error occurred trying to send a file (try number: " + String.valueOf(counter) + "), " + e.getMessage());
+              } else {
+                  throw e;
+              }
+          }
+      }
+  }
+
+  private void trySendFile(Group group, SkypeFile file) throws IOException {
     SkypeFileType fileType = file.getEnumType();
     String uploadId = getIdForUploadUrl(group, file.getName(), fileType);
 

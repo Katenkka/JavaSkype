@@ -129,7 +129,49 @@ public final class Skype {
   public void connect() throws IOException, InterruptedException {
     connect(Presence.ONLINE);
   }
-  
+
+  private void tryConnect(Presence presence) throws IOException, InterruptedException {
+    if (connecting || connected) {
+      return;
+    }
+    connected = true;
+    connecting = true;
+
+    logger.fine("Connecting to Skype");
+
+    reset();
+
+    long expires = Long.MAX_VALUE;
+
+    try {
+      if (microsoft) {
+        // webConnector and notifConnector depend on liveConnector
+        expires = liveConnector.refreshTokens();
+      }
+
+      // notifConnector depends on webConnector
+      expires = Long.min(expires, webConnector.refreshTokens(liveConnector.getSkypeToken()));
+
+      getSelf().setPresence(presence, false);
+
+      // will block until connected
+      expires = Long.min(expires, notifConnector.connect(liveConnector.getLoginToken(), liveConnector.getLiveToken()));
+    } catch (IOException e) {
+      throw new IOException("Error thrown during connection. Check your credentials?", e);
+    }
+
+    this.expires = expires;
+
+    connecting = false;
+
+    if (exceptionDuringConnection != null) {
+      // an exception has been thrown during connection
+      throw new IOException("Error thrown during connection. Check your credentials?", exceptionDuringConnection);
+    }
+
+    refreshThread.start();
+  }
+
   /**
    * Connects the Skype interface. Will block until connected.
    *
@@ -138,49 +180,25 @@ public final class Skype {
    * @throws InterruptedException If the connection is interrupted.
    */
   public void connect(Presence presence) throws IOException, InterruptedException {
-    if (presence == Presence.OFFLINE) {
-      throw new IllegalArgumentException("Presence can't be set to offline. Use HIDDEN if you want to connect without being visible.");
-    }
-    if (connecting || connected) {
-      return;
-    }
-    connected = true;
-    connecting = true;
-  
-    logger.fine("Connecting to Skype");
-  
-    reset();
-  
-    long expires = Long.MAX_VALUE;
-  
-    try {
-      if (microsoft) {
-        // webConnector and notifConnector depend on liveConnector
-        expires = liveConnector.refreshTokens();
+      if (presence == Presence.OFFLINE) {
+          throw new IllegalArgumentException("Presence can't be set to offline. Use HIDDEN if you want to connect without being visible.");
       }
-    
-      // notifConnector depends on webConnector
-      expires = Long.min(expires, webConnector.refreshTokens(liveConnector.getSkypeToken()));
-    
-      getSelf().setPresence(presence, false);
-    
-      // will block until connected
-      expires = Long.min(expires, notifConnector.connect(liveConnector.getLoginToken(), liveConnector.getLiveToken()));
-    } catch (IOException e) {
-      //todo if 911 try to reconnect
-      throw new IOException("Error thrown during connection. Check your credentials?", e);
-    }
-  
-    this.expires = expires;
-    
-    connecting = false;
-  
-    if (exceptionDuringConnection != null) {
-      // an exception has been thrown during connection
-      throw new IOException("Error thrown during connection. Check your credentials?", exceptionDuringConnection);
-    }
-  
-    refreshThread.start();
+      int counter = 0;
+      while(counter < 3) {
+          try {
+              counter++;
+              tryConnect(presence);
+              break;
+          } catch (Exception e) {
+              if (counter < 3) {
+                  logger.warning("An error occurred trying to connect (try number: " + String.valueOf(counter) + "), " + e.getMessage());
+                  connected = false;
+                  connecting = false;
+              } else {
+                  throw e;
+              }
+          }
+      }
   }
   
   /**
@@ -418,6 +436,9 @@ public final class Skype {
 /*
       case VIDEO:
         return new SkypeVideo(name, content);*/
+
+/*      case AUDIO:
+        return new SkypeAudio(name, content);*/
 
       default:
         return new SkypeFile(name, content);
