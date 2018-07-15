@@ -1,10 +1,11 @@
 package fr.delthas.skype;
 
 public enum SkypeFileType {
-    PLAIN_FILE("file", "/views/original",  "/content/original", "RichText/Media_GenericFile", "https://login.skype.com/login/sso?go=webclient.xmm&docid=%s", "%s/views/thumbnail", "File.1"),
-    IMAGE("image", "/views/imgpsh_fullsize",  "/content/imgpsh", "RichText/UriObject", "https://api.asm.skype.com/s/i?%s", "%s/views/imgt1", "Picture.1"),
-    //@do not use yet
-    VIDEO("video", "/views/video",  "/content/original", "RichText/Media_Video", "https://login.skype.com/login/sso?go=webclient.xmm?vim=%s", "%s/views/thumbnail", "Video.1/Message.1");
+    PLAIN_FILE("file", "/views/original",  "/content/original", "RichText/Media_GenericFile", "https://login.skype.com/login/sso?go=webclient.xmm&docid=%s", "%s/views/thumbnail", "File.1")
+    ,IMAGE("image", "/views/imgpsh_fullsize",  "/content/imgpsh", "RichText/UriObject", "https://api.asm.skype.com/s/i?%s", "%s/views/imgt1", "Picture.1")
+    ,VIDEO("video", "/views/video",  "/content/original", "RichText/Media_Video", "https://login.skype.com/login/sso?go=webclient.xmm?vim=%s", "%s/views/thumbnail", "Video.1/Message.1")
+    ,AUDIO("audio", "/views/audio",  "/content/original", "RichText/Media_AudioMsg", "https://login.skype.com/login/sso?go=webclient.xmm?am=%s", "%s", "Audio.1/Message.1")
+    ;
 
     private String name;
 

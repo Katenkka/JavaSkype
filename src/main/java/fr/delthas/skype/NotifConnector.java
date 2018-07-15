@@ -280,6 +280,8 @@ class NotifConnector {
             break;
           }
           switch (messageType) {
+            case "RichText/Media_AudioMsg":
+              // audio
             case "RichText/Media_Video":
               //video
             case "RichText/UriObject":

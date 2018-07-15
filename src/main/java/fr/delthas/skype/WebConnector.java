@@ -105,31 +105,34 @@ class WebConnector {
     }
 
     HashMap<String, String> keyvals = new HashMap<>();
+    keyvals.put("OriginalName", file.getName());
+
     String messageBody;
 
     String linkToFile = String.format(fileType.getLinkToFileFormat(), uploadId);
     String viewLink = String.format("<a href=\"%s\">%s</a>", linkToFile, linkToFile);
-    String thumbUrl = fileType.getThumbUrlFormat();
 
     switch (fileType) {
       case IMAGE:
-        keyvals.put("OriginalName", file.getName());
-
-        messageBody = this.getUriObject(String.format("%s<meta type=\"photo\" originalName=\"%s\"/>", viewLink, file.getName()), fullUrl, fileType.getUriObjectType(), file.getUriObjectParams(thumbUrl, fullUrl), "", "", keyvals);
+        messageBody = this.getUriObject(String.format("%s<meta type=\"photo\" originalName=\"%s\"/>", viewLink, file.getName()), fullUrl, fileType.getUriObjectType(), file.getUriObjectParams(fullUrl), "", "", keyvals);
         break;
 
 /*      case VIDEO:
-        keyvals.put("OriginalName", file.getName());
-        keyvals.put("FileSize", String.format("%d", 0)); //?
+        keyvals.put("FileSize", String.format("%d", 0));
 
-        messageBody = this.getUriObject(String.format("To view this video message, go to: %s", viewLink), fullUrl, fileType.getUriObjectType(), file.getUriObjectParams(thumbUrl, fullUrl), null, null, keyvals);
+        messageBody = this.getUriObject(String.format("To view this video message, go to: %s", viewLink), fullUrl, fileType.getUriObjectType(), file.getUriObjectParams(fullUrl), null, null, keyvals);
+        break;*/
+
+/*      case AUDIO:
+        keyvals.put("FileSize", String.format("%d", 0));
+
+        messageBody = this.getUriObject(String.format("To hear this voice message, go to: %s", viewLink), fullUrl, fileType.getUriObjectType(), file.getUriObjectParams(fullUrl), null, null, keyvals);
         break;*/
 
       default:
-        keyvals.put("OriginalName", file.getName());
-        keyvals.put("FileSize", String.format("%d", file.getContent().length)); //?
+        keyvals.put("FileSize", String.format("%d", file.getContent().length));
 
-        messageBody = this.getUriObject(viewLink, fullUrl, fileType.getUriObjectType(), file.getUriObjectParams(thumbUrl, fullUrl), file.getName(), file.getName(), keyvals);
+        messageBody = this.getUriObject(viewLink, fullUrl, fileType.getUriObjectType(), file.getUriObjectParams(fullUrl), file.getName(), file.getName(), keyvals);
     }
 
     group.sendMessage(messageBody, true, fileType.getMsgType(), "Content-Type: application/user+xml");
@@ -142,7 +145,6 @@ class WebConnector {
                 meta.put("type","pish/image");
                 break;
 
-                //case VIDEO:
             default:
                 meta.put("type", "sharing/file");
                 meta.put("filename", fileName);

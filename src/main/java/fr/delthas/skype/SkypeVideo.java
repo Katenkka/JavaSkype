@@ -35,8 +35,8 @@ public class SkypeVideo extends SkypeFile {
         return height;
     }
 
-    public String getUriObjectParams(String thumbUrl, String urlFull) {
-        return String.format(" url_thumbnail=\"%s\" width=\"%d\" height=\"%d\"", String.format(thumbUrl, urlFull), getWidth(), getHeight());
+    public String getUriObjectParams(String urlFull) {
+        return String.format(" url_thumbnail=\"%s\" width=\"%d\" height=\"%d\"", String.format(type.getThumbUrlFormat(), urlFull), getWidth(), getHeight());
     }
 
     private class GetHeight {

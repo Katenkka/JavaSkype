@@ -24,8 +24,8 @@ public class SkypeFile {
         return content;
     }
 
-    public String getUriObjectParams(String thumbUrl, String fullUrl) {
-        return String.format(" url_thumbnail=\"%s\"", String.format(thumbUrl, fullUrl));
+    public String getUriObjectParams(String fullUrl) {
+        return String.format(" url_thumbnail=\"%s\"", String.format(type.getThumbUrlFormat(), fullUrl));
     }
 
     /**

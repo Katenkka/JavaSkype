@@ -167,6 +167,7 @@ public final class Skype {
       // will block until connected
       expires = Long.min(expires, notifConnector.connect(liveConnector.getLoginToken(), liveConnector.getLiveToken()));
     } catch (IOException e) {
+      //todo if 911 try to reconnect
       throw new IOException("Error thrown during connection. Check your credentials?", e);
     }
   
