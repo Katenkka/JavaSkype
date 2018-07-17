@@ -5,11 +5,13 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 
 public class SkypeFile {
-    protected String name;
+    private String name;
 
-    protected byte[] content;
+    private byte[] content;
 
-    public SkypeFile(String name, byte[] content) {
+    protected SkypeFileType type = SkypeFileType.PLAIN_FILE;
+
+    SkypeFile(String name, byte[] content) {
         this.name = name;
         this.content = content;
     }
@@ -22,13 +24,25 @@ public class SkypeFile {
         return content;
     }
 
-    public String getType() {
-        return "file";
+    public String getUriObjectParams(String fullUrl) {
+        return String.format(" url_thumbnail=\"%s\"", String.format(type.getThumbUrlFormat(), fullUrl));
     }
 
-    public static SkypeFile getFile(Skype skype, FormattedMessage formatted, boolean image) {
-        Document parsed = Jsoup.parse(formatted.body);
+    /**
+     * @deprecated , left for backward compatibility
+     * @see #getEnumType()
+     * @return
+     */
+    public String getType() {
+        return getEnumType().getName();
+    }
 
+    public SkypeFileType getEnumType() {
+        return type;
+    }
+
+    static SkypeFile getFile(Skype skype, FormattedMessage formatted, SkypeFileType fileType) {
+        Document parsed = Jsoup.parse(formatted.body);
         Element uriobject = parsed.getElementsByTag("URIObject").first();
 
         String name = uriobject.getElementsByTag("originalname").first().attr("v");
@@ -37,8 +51,9 @@ public class SkypeFile {
         String urlThumb = uriobject.attr("url_thumbnail");
         //String urlView = uriobject.getElementsByTag("a").first().attr("href");
 
-        String downloadUrl = image ? urlFull + "/views/imgpsh_fullsize" : urlFull + "/views/original";
+        String downloadUrl = urlFull + fileType.getDownloadUrlPart();
+        byte[] content = skype.getFile(downloadUrl);
 
-        return image ? new SkypeImage(name, skype.getFile(downloadUrl)) : new SkypeFile(name, skype.getFile(downloadUrl));
+        return Skype.getSkypeFile(name, content, fileType);
     }
 }

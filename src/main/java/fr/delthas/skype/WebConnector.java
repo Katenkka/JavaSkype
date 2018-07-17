@@ -24,65 +24,64 @@ class WebConnector {
   private final String username, password;
   private String skypeToken;
   private boolean updated = false;
-  
+
   public WebConnector(Skype skype, String username, String password) {
     this.skype = skype;
     this.username = username;
     this.password = password;
   }
-  
+
   private static String getPlaintext(String string) {
     if (string == null) {
       return null;
     }
     return Jsoup.parseBodyFragment(string).text();
   }
-  
+
   public synchronized long refreshTokens(String token) throws IOException {
     logger.finer("Refreshing tokens");
     long expire = generateToken(token);
     updateContacts();
     return expire;
   }
-  
+
   public void block(User user) throws IOException {
     sendRequest(Method.PUT, "/users/self/contacts/" + user.getUsername() + "/block", "reporterIp", "127.0.0.1");
   }
-  
+
   public void unblock(User user) throws IOException {
     sendRequest(Method.PUT, "/users/self/contacts/" + user.getUsername() + "/unblock");
   }
-  
+
   public void sendContactRequest(User user, String greeting) throws IOException {
     sendRequest(Method.PUT, "/users/self/contacts/auth-request/" + user.getUsername(), "greeting", greeting);
   }
-  
+
   public void acceptContactRequest(ContactRequest contactRequest) throws IOException {
     sendRequest(Method.PUT, "/users/self/contacts/auth-request/" + contactRequest.getUser().getUsername() + "/accept");
   }
-  
+
   public void declineContactRequest(ContactRequest contactRequest) throws IOException {
     sendRequest(Method.PUT, "/users/self/contacts/auth-request/" + contactRequest.getUser().getUsername() + "/decline");
   }
-  
+
   public void removeFromContacts(User user) throws IOException {
     sendRequest(Method.DELETE, "/users/self/contacts/" + user.getUsername());
   }
-  
+
   public byte[] getAvatar(User user) throws IOException {
     return sendRequest(Method.GET, user.getAvatarUrl(), true).bodyAsBytes();
   }
-  
+
   public byte[] getFileAsBytes(String url) throws IOException {
     return prepareConnectWithAuthorizationToken(Method.GET, url, true)
             .header("Accept", "application/json")
             .execute().bodyAsBytes();
   }
 
-  private String getUriObject(String content, String url, String type, String thumb, String title, String desc, HashMap<String, String> keyvals) {
-    String titleTag = title.equals("") ? "<Title/>" : String.format("<Title>Title: %s</Title>", title);
-    String descTag = desc.equals("") ? "<Description/>" : String.format("<Description>Description: %s</Description>", desc);
-    String thumbAttr = thumb.equals("") ? "" : String.format(" url_thumbnail=\"%s\"", thumb);
+  private String getUriObject(String content, String url, String type, String uriObjectExtraAttr, String title, String desc, HashMap<String, String> keyvals) {
+    String titleTag = title == null ? "" : (title.equals("") ? "<Title/>" : String.format("<Title>Title: %s</Title>", title));
+    String descTag = desc == null ? "" : ( desc.equals("") ? "<Description/>" : String.format("<Description>Description: %s</Description>", desc));
 
     StringBuilder valTags = new StringBuilder();
     Iterator it = keyvals.entrySet().iterator();
@@ -92,94 +91,130 @@ class WebConnector {
       it.remove(); // avoids a ConcurrentModificationException
     }
 
-    return String.format("<URIObject type=\"%s\" uri=\"%s\"%s>%s%s%s%s</URIObject>", type, url, thumbAttr, titleTag, descTag, content, valTags.toString());
+    return String.format("<URIObject type=\"%s\" uri=\"%s\"%s>%s%s%s%s</URIObject>", type, url, uriObjectExtraAttr, titleTag, descTag, content, valTags.toString());
   }
 
-  public void sendFile(Group group, String fileName, byte[] fileBytes, boolean image) throws IOException {
-    JSONObject meta = new JSONObject();
-    meta.put("type", image ? "pish/image" : "sharing/file");
-    if(!image) {
-      meta.put("filename", fileName);
-    }
+  void sendFile(Group group, SkypeFile file) throws IOException {
+    int counter = 0;
+      while(counter < 3) {
+          try {
+              counter++;
+              trySendFile(group, file);
+              break;
+          } catch (Exception e) {
+              if (counter < 3) {
+                  logger.warning("An error occurred trying to send a file (try number: " + String.valueOf(counter) + "), " + e.getMessage());
+              } else {
+                  throw e;
+              }
+          }
+      }
+  }
 
-    JSONArray permission = new JSONArray();
-    permission.put("read");
+  private void trySendFile(Group group, SkypeFile file) throws IOException {
+    SkypeFileType fileType = file.getEnumType();
+    String uploadId = getIdForUploadUrl(group, file.getName(), fileType);
 
-    JSONObject groupPermission = new JSONObject();
-    groupPermission.put("19:" + group.getId() + "@thread.skype", permission);
-
-    meta.put("permissions", groupPermission);
-
-    Connection conn = prepareConnectWithAuthorizationToken(Method.POST, "https://api.asm.skype.com/v1/objects", true)
-            .requestBody(meta.toString())
-            .header("Content-Type", "application/json")
-            .header("Accept", "application/json")
-            .header("X-Client-Version", "908/1.117.0.21");
-
-    String idResponse = conn.execute().body();
-
-    JSONObject json = new JSONObject(idResponse);
-
-    String uploadId = json.optString("id", null);
-    if (uploadId == null) {
-      throw new ParseException("Error while parsing file id response, no uploadId ");
-    }
-
-    String urlFull = "https://api.asm.skype.com/v1/objects/" + uploadId;
-    String objType = image ? "imgpsh" :  "original";
-    int statusCode = putFileReturnStatusCode(fileBytes, urlFull, objType);
+    String fullUrl = "https://api.asm.skype.com/v1/objects/" + uploadId;
+    int statusCode = putFileReturnStatusCode(file.getContent(), fullUrl + fileType.getUploadUrlPart());
     if (statusCode != 201) {
-      throw new ParseException("Couldn't create a file by PUT request");
+      throw new IOException("Couldn't create a file by PUT request, received code " + Integer.toString(statusCode));
     }
 
-    HashMap<String, String> keyvals = new HashMap<String, String>();
-    StringBuilder messageBody = new StringBuilder();
+    HashMap<String, String> keyvals = new HashMap<>();
+    keyvals.put("OriginalName", file.getName());
 
-    // всё ок, файл создан, теперь отправляем сообщение с этим файлом
-    if(image) {
-      String linkToFile = String.format("https://api.asm.skype.com/s/i?%s", uploadId);
-      String viewLink = String.format("<a href=\"%s\">%s</a>", linkToFile, linkToFile);
-      String thumbUrl = "%s/views/imgt1";
+    String messageBody;
 
-      keyvals.put("OriginalName", fileName);
+    String linkToFile = String.format(fileType.getLinkToFileFormat(), uploadId);
+    String viewLink = String.format("<a href=\"%s\">%s</a>", linkToFile, linkToFile);
 
-      messageBody.append(this.getUriObject(String.format("%s<meta type=\"photo\" originalName=\"%s\"/>", viewLink, fileName), urlFull,"Picture.1", String.format(thumbUrl, urlFull), "","", keyvals));
-    } else {
-      String linkToFile = String.format("https://login.skype.com/login/sso?go=webclient.xmm&docid=%s", uploadId);
-      String viewLink = String.format("<a href=\"{%s}\">{%s}</a>", linkToFile, linkToFile);
-      String thumbUrl = "%s/views/thumbnail";
+    switch (fileType) {
+      case IMAGE:
+        messageBody = this.getUriObject(String.format("%s<meta type=\"photo\" originalName=\"%s\"/>", viewLink, file.getName()), fullUrl, fileType.getUriObjectType(), file.getUriObjectParams(fullUrl), "", "", keyvals);
+        break;
 
-      keyvals.put("OriginalName", fileName);
-      keyvals.put("FileSize", String.format("%d", fileBytes.length)); //?
+/*      case VIDEO:
+        keyvals.put("FileSize", String.format("%d", 0));
 
-      messageBody.append(this.getUriObject(viewLink, urlFull, "File.1", String.format(thumbUrl, urlFull), fileName, fileName, keyvals));
+        messageBody = this.getUriObject(String.format("To view this video message, go to: %s", viewLink), fullUrl, fileType.getUriObjectType(), file.getUriObjectParams(fullUrl), null, null, keyvals);
+        break;*/
+
+/*      case AUDIO:
+        keyvals.put("FileSize", String.format("%d", 0));
+
+        messageBody = this.getUriObject(String.format("To hear this voice message, go to: %s", viewLink), fullUrl, fileType.getUriObjectType(), file.getUriObjectParams(fullUrl), null, null, keyvals);
+        break;*/
+
+      default:
+        keyvals.put("FileSize", String.format("%d", file.getContent().length));
+
+        messageBody = this.getUriObject(viewLink, fullUrl, fileType.getUriObjectType(), file.getUriObjectParams(fullUrl), file.getName(), file.getName(), keyvals);
     }
 
-    group.sendMessage(messageBody.toString(), true, String.format("RichText/%s", image ? "UriObject" : "Media_GenericFile"), "Content-Type: application/user+xml");
+    group.sendMessage(messageBody, true, fileType.getMsgType(), "Content-Type: application/user+xml");
   }
 
-  /**
+    private String getIdForUploadUrl(Group group, String fileName, SkypeFileType fileType) throws IOException {
+        JSONObject meta = new JSONObject();
+        switch(fileType) {
+            case IMAGE:
+                meta.put("type","pish/image");
+                break;
+
+            default:
+                meta.put("type", "sharing/file");
+                meta.put("filename", fileName);
+        }
+
+        JSONArray permission = new JSONArray();
+        permission.put("read");
+
+        JSONObject groupPermission = new JSONObject();
+        groupPermission.put("19:" + group.getId() + "@thread.skype", permission);
+
+        meta.put("permissions", groupPermission);
+
+        Connection conn = prepareConnectWithAuthorizationToken(Method.POST, "https://api.asm.skype.com/v1/objects", true)
+                .requestBody(meta.toString())
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .header("X-Client-Version", "908/1.117.0.21");
+
+        String idResponse = conn.execute().body();
+
+        JSONObject json = new JSONObject(idResponse);
+
+        String uploadId = json.getString("id");
+
+        if (uploadId == null) {
+            throw new IOException("Error while parsing file id response, no uploadId ");
+        }
+
+        return uploadId;
+    }
+
+    /**
    * Do not use as it corrupts at least pictures. Use native HttpURLConnection instead, implemented in
-   * @see #putFileReturnStatusCode(byte[], String, String)
+   * @see #putFileReturnStatusCode(byte[], String)
    *
    * @param fileBytes
    * @param urlFull
-   * @param objType
    * @return
    * @throws IOException
    *
    * @deprecated
    */
-  private int putFileReturnStatusCodeJsoup(byte[] fileBytes, String urlFull, String objType) throws IOException {
-    Connection putConnection = prepareConnectWithAuthorizationToken(Method.PUT, urlFull + "/content/" + objType, true)
+  private int putFileReturnStatusCodeJsoup(byte[] fileBytes, String urlFull) throws IOException {
+    Connection putConnection = prepareConnectWithAuthorizationToken(Method.PUT, urlFull, true)
             .requestBody(new String(fileBytes))
             .header("Content-Type", "multipart/form-data; charset=utf-8");
 
     return putConnection.execute().statusCode();
   }
 
-  private int putFileReturnStatusCode(byte[] fileContents, String urlFull, String objType) throws IOException {
-    java.net.URL url = new java.net.URL(urlFull + "/content/" + objType);
+  private int putFileReturnStatusCode(byte[] fileContents, String urlFull) throws IOException {
+    java.net.URL url = new java.net.URL(urlFull);
     java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
     conn.setDoOutput(true);
 
@@ -201,7 +236,7 @@ class WebConnector {
     userJSON.put("username", user.getUsername());
     updateUser(userJSON, false);
   }
-  
+
   private void updateContacts() throws IOException {
     if (updated) {
       return;
@@ -209,12 +244,12 @@ class WebConnector {
     updated = true;
     String selfResponse = sendRequest(Method.GET, "/users/self/profile").body();
     JSONObject selfJSON = new JSONObject(selfResponse);
-    
+
     User loggedUser = updateUser(selfJSON, false, username);
-    
+
     String profilesResponse =
             sendRequest(Method.GET, "https://contacts.skype.com/contacts/v2/users/" + loggedUser.getLiveUsername() + "/contacts", true).body();
-    
+
     try {
       JSONObject json = new JSONObject(profilesResponse);
       if (json.optString("message", null) != null) {
@@ -231,11 +266,11 @@ class WebConnector {
       throw new ParseException(e);
     }
   }
-  
+
   private User updateUser(JSONObject userJSON, boolean newContactType) throws ParseException {
     return updateUser(userJSON, newContactType, null);
   }
-  
+
   private User updateUser(JSONObject userJSON, boolean newContactType, String username) throws ParseException {
     String userUsername;
     String userFirstName = null;
@@ -259,7 +294,7 @@ class WebConnector {
         if (userJSON.optBoolean("blocked", false)) { return null; }
         if (!userJSON.optBoolean("authorized", false)) { return null; }
         if (userJSON.optBoolean("suggested", false)) { return null; }
-  
+
         String mri = userJSON.getString("mri");
         int senderBegin = mri.indexOf(':');
         int network;
@@ -275,13 +310,13 @@ class WebConnector {
         userUsername = mri.substring(senderBegin + 1);
         userDisplayName = userJSON.optString("display_name", null);
         JSONObject profileJSON = userJSON.getJSONObject("profile");
-        
+
         if (profileJSON.has("name")) {
             JSONObject nameJSON = profileJSON.getJSONObject("name");
             userFirstName = nameJSON.optString("first", null);
             userLastName = nameJSON.optString("surname", null);
         }
-        
+
         userMood = profileJSON.optString("mood", null);
         if (profileJSON.has("locations")) {
           JSONObject locationJSON = profileJSON.optJSONArray("locations").optJSONObject(0);
@@ -306,7 +341,7 @@ class WebConnector {
     user.setLiveUsername(userUsername);
     return user;
   }
-  
+
   private long generateToken(String token) throws IOException {
     String response;
     if (token == null) {
@@ -370,7 +405,7 @@ class WebConnector {
     conn.data(keyval);
     return conn.execute();
   }
-  
+
   private Response sendRequest(Method method, String apiPath, String... keyval) throws IOException {
     return sendRequest(method, apiPath, false, keyval);
   }

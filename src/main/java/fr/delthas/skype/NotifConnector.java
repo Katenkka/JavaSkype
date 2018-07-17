@@ -280,23 +280,14 @@ class NotifConnector {
             break;
           }
           switch (messageType) {
-            case "RichText/Media_GenericFile":
-              //file
-              if(formatted.body.equals("")) {
-                // it was a request to delete file, skipping
-                break;
-              }
-              if (!(sender instanceof User)) {
-                logger.fine("Received " + messageType + " message sent from " + sender + " which isn't a user");
-                break;
-              }
-              SkypeFile skypeFile = SkypeFile.getFile(skype, formatted, false);
-              if (receiver instanceof Group) {
-                skype.groupFileReceived((Group) receiver, (User) sender, skypeFile);
-              }
-              break;
+            case "RichText/Media_AudioMsg":
+              // audio
+            case "RichText/Media_Video":
+              //video
             case "RichText/UriObject":
               //pic
+             case "RichText/Media_GenericFile":
+             //file
               if(formatted.body.equals("")) {
                 // it was a request to delete file, skipping
                 break;
@@ -305,9 +296,9 @@ class NotifConnector {
                 logger.fine("Received " + messageType + " message sent from " + sender + " which isn't a user");
                 break;
               }
-              SkypeFile skypeImage = SkypeFile.getFile(skype, formatted, true);
+              SkypeFile skypeFile = SkypeFile.getFile(skype, formatted, SkypeFileType.getEnumValueByMsgType(messageType));
               if (receiver instanceof Group) {
-                skype.groupFileReceived((Group) receiver, (User) sender, skypeImage);
+                skype.groupFileReceived((Group) receiver, (User) sender, skypeFile);
               }
               break;
             case "Text":
@@ -631,7 +622,7 @@ class NotifConnector {
     
     logger.finer("Waiting for connection");
     connectLatch.await(); // block until connected
-    
+
     pingThread.start();
     
     return nanoTime + 1000000000L * 24 * 60 * 60;
