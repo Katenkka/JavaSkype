@@ -63,6 +63,11 @@ public final class Skype {
     this.password = password;
     microsoft = username.contains("@");
 
+    groups = new HashMap<>();
+    contacts = new HashSet<>();
+    users = new HashMap<>();
+    contactRequests = new LinkedList<>();
+
     refreshThread = new RefreshThread();
     refreshThread.setName("Skype-Ping-Thread");
     refreshThread.setDaemon(true);
