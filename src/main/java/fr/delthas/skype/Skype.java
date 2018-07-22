@@ -341,10 +341,10 @@ public final class Skype {
     liveConnector = new LiveConnector(username, password);
     notifConnector = new NotifConnector(this, username, password);
     webConnector = new WebConnector(this, username, password);
-    groups = new HashMap<>();
+/*    groups = new HashMap<>();
     contacts = new HashSet<>();
     users = new HashMap<>();
-    contactRequests = new LinkedList<>();
+    contactRequests = new LinkedList<>();*/
     exceptionDuringConnection = null;
 
     refreshThread = new RefreshThread();
